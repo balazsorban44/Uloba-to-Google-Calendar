@@ -122,7 +122,7 @@ function main(){
 } // --------------------------------------END OF MAIN FUNCTION-------------------------------------- //
 
 // --------------------------------------INSERTING A BUTTON TO THE PAGE TO RUN THE MAIN FUNCTION-------------------------------------- //
-document.getElementsByTagName('h2')[1].innerHTML += "<a id='gcal' class='btn btn-primary' href='#'>Export as CSV (for Google Calendar)</a>";
+document.getElementsByTagName('h2')[1].innerHTML += "<a id='gcal' class='btn btn-primary' href='#'>Export as .csv (e.g. Google Calendar)</a>";
 var button = document.getElementById("gcal");
 button.style.float = "right";
 if (button) {
