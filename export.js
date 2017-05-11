@@ -1,133 +1,97 @@
 // ==UserScript==
 // @name         Uloba Arbeidsplan to Google Calendar
 // @namespace    http://balazsorban.com/
-// @version      0.1
+// @version      2.0
 // @description  Uloba CSV export
 // @author       Balázs Orbán (info@balazsorban.com)
 // @match        https://arbeidsplan.uloba.no/Home/PersonIndexPrint*
+// @require      https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/6.18.2/babel.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/babel-polyfill/6.16.0/polyfill.js
 // @grant        none
 // ==/UserScript==
 
+/* jshint ignore:start */
+var inline_src = (<><![CDATA[
+/* jshint ignore:end */
+    /* jshint esnext: false */
+    /* jshint esversion: 6 */
+
 // --------------------------------------MAIN FUNCTION-------------------------------------- //
-function main(){
-// ASKS USER FOR THE LOCATION OF THE EVENTS (OPTIONAL, SHOULD NOT CONTAIN "," BECAUSE OF THE PARSING FORMAT (CSV SEPARATES BY COMMAS))
-  var workLocation = window.prompt("Location(optional)(DO NOT USE COMMA!)");
 
-//FINDING THE EMPLOYER (ARBEIDSLEDER)
-  var employer;
-  var e = document.querySelectorAll('th, td');
-  for (var i = 0; i < e.length; i++) {
-    if (e[i].className == "assistantNameHeader" && e[i].innerText.length > 0 ){
-      employer = e[i+8].innerText;
-    }
-  }
-//console.log(employer); // WHO IS THE EMPLOYER?
-
-// GATHERING THE IMPORTANT DATA
-  var data = document.querySelectorAll('th,td');
-  var dataText = [];
-  for (i=0;i<data.length;i++){
-    dataText.push(data[i].innerText);
-  }
-
-// REFORMATTING DATES AND TIMES
-  for (i = 0; i < dataText.length; i++) {
-    var days =["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"];
-    for (var j = 0; j < days.length; j++) {
-// HANDLING THE WORKING DATES
-      if (dataText[i].startsWith(days[j]) === true) {
-        dataText.splice(i,1,dataText[i].substr(4)); // SLICING DOWN THE UNIMPORTANT WORDS (DAY SHORTENINGS)
-        var dager = dataText[i].substr(0,2); // GETTING THE DAY OF THE MONTH
-        var mnd = dataText[i].substr(3,2); // GETTING THE MONTH OF THE YEAR
-        var aar = dataText[i].substr(6,2); // GETTING THE YEAR
-        dataText[i] = mnd + "/" + dager + "/" + "20" + aar; //NEW DATEFORMAT (FROM dd.MM.yy TO MM/dd/yyyy)
+const init = () => {
+  // Fetch raw data
+  let raw = [];
+  document.querySelectorAll('table').forEach((e) => {
+      if (e.querySelector("tbody th") !== null){
+        raw.push(e);
       }
-    }
-
-// HANDLING THE WORKING HOURS
-    if (dataText[i].substr(6,1) == "-") {
-      dataText[i] = dataText[i].substr(0, dataText[i].length - 1); // SLICE DOWN THE LAST CHARACTER ( ⤶ )
-      dataText[i] = dataText[i].replace(/\./g,":"); //NEW TIMEFORMAT (FROM HH.mm TO HH:mm )
-    }
-  }
-
-//console.log(dataText); // CHECK THE THE DATA GATHERED SO FAR
-
-//SEPARATING WORKING DATES
-  var date = [];
-  function selectDate(toArray){
-    for (var i = 0; i < dataText.length - 7; i++) {
-      if (dataText[i+7].length == 13) {
-        toArray[i] = dataText[i-1];
-      }
-      else {
-        toArray[i] = "";
-      }
-    }
-  }
-  selectDate(date);
-
-//SEPARATING WORKING HOURS
-  var time = [];
-  function selectTime(toArray){
-    for (var i = 0; i < dataText.length; i++) {
-      if (dataText[i].length == 13) {
-        for (var j = 0; j < dataText.length; j++) {
-          toArray[i-7] = dataText[i];
-        }
-      }
-      else {
-        toArray[i] = "";
-      }
-    }
-  }
-  selectTime(time);
-    // SEPARATING START FROM END TIME
-  var startTime = time.map((s) => s.substr(0, 5));
-  var endTime = time.map((s) => s.substr(8));
-
-// GATHERING ALL THE REFORMATTED DATA INTO THE CSV MULTIDIMENSIONAL-ARRAY
-  var csv = [[ "Subject","Start Date","Start Time","End Date","End Time","Location"],]; // HEADER FOR THE CSV FILE
-  for (i = 0; i < dataText.length; i++) {
-    // EVENT EXAMPLE:
-      // Event title: Work (Balázs Orbán)
-      // Start Date: 2016.07.12
-      // Start Time: 08:00
-      // End Date: 2016.07.12
-      // End Time: 16:00
-      // Location: Trondheim 7030
-    csv.splice(i+1,0,["Work (" + employer + ")",date[i], startTime[i],date[i],endTime[i],workLocation]);
-  }
-
-// REMOVING EMPTY LINES
-  var exportIt = [];
-  for (i = 0; i < csv.length; i++) {
-    if (csv[i][1] !== "" && typeof csv[i][1] !== 'undefined')  {
-      exportIt.push(csv[i]);
-    }
-  }
-console.log(exportIt.join("\n")); // LAST CHECK BEFORE EXPORTING
-
-// PARSING INTO CSV FORMAT
-  var csvContent = "data:text/csv;charset=utf-8,";
-  exportIt.forEach(function(infoArray, index){
-    dataString = infoArray.join(",");
-    csvContent += index < exportIt.length ? dataString+ "\n" : dataString;
   });
 
-// DOWNLOAD AS uloba.csv ON BUTTON CLICK
-  var encodedUri = encodeURI(csvContent);
-  button.setAttribute("href", encodedUri);
+  // Function to extract events from a week of data.
+  const extractWeek = (element) => {
+    let weekEvents = {
+          "dates":[],
+          "from": [],
+          "to": []
+        };
+    const weekDays = element.querySelectorAll("thead th"),
+          workingHours = element.querySelectorAll("tbody td");
+
+    for (let i = 0; i < workingHours.length; i++) {
+      if (workingHours[i].innerText.includes(".")) {
+        const hours = workingHours[i].innerText,
+          date = weekDays[i+1].innerText.split(" ")[1],
+          year = date.substring(6),
+          month = date.substring(3,5),
+          day = date.substring(0,2);
+        let fromHour = hours.split(" - ")[0],
+            toHour = hours.split(" - ")[1];
+        fromHour = `${fromHour.substring(0,2)}:${fromHour.substring(3,5)}`;
+        toHour = `${toHour.substring(0,2)}:${toHour.substring(3,5)}`;
+
+        weekEvents.dates.push(`${month}/${day}/20${year}`);
+        weekEvents.from.push(fromHour);
+        weekEvents.to.push(toHour);
+      }
+    }
+    return weekEvents;
+  };
+
+  let events = "";
+  const eventTitle = window.prompt("Please give a title to the events. (Default: 'Work')", "Work"),
+        eventLocation = window.prompt("The location of your workplace. (Default: empty)");
+
+  for (let i = 0; i < raw.length; i++) {
+    const week = extractWeek(raw[i]);
+    for (let j = 0; j < week.dates.length; j++) {
+      events += `"${eventTitle}","${week.dates[j]}","${week.from[j]}","${week.dates[j]}","${week.to[j]}","${eventLocation}"\n`;
+    }
+  }
+
+  const parseCSV = (data) => {
+    let csv = [ `data:text/csv;charset=utf-8,"Subject","Start Date","Start Time","End Date","End Time","Location"`]; // HEADER FOR THE CSV FILE
+    csv.push(data); // Merge CSV with events
+    csv = csv.join("\n"); // Final formatting of CSV.
+    return csv;
+  };
+
+  // DOWNLOAD AS uloba.csv ON BUTTON CLICK
+  button.setAttribute("href", encodeURI(parseCSV(events)));
   button.setAttribute("download", "uloba.csv");
-} // --------------------------------------END OF MAIN FUNCTION-------------------------------------- //
+};
 
 // --------------------------------------INSERTING A BUTTON TO THE PAGE TO RUN THE MAIN FUNCTION-------------------------------------- //
-document.getElementsByTagName('h2')[1].innerHTML += "<a id='gcal' class='btn btn-primary' href='#'>Export as .csv (e.g. Google Calendar)</a>";
-var button = document.getElementById("gcal");
-button.style.float = "right";
-if (button) {
-    button.addEventListener ("click", main , false);
-}
+document.getElementsByTagName('h2')[1].innerHTML += "<a id='gcal' class='btn btn-primary' href='' style='float:right'>Export as .csv (e.g. Google Calendar)</a>";
+let button = document.getElementById("gcal");
+button.addEventListener("click", init , false);
+
 
 // THANKS FOR USING MY CODE
-console.log("Thank you for running my code. If you have any questions, mail me: info@balazsorban.com ");
+console.log("If you have any questions, mail me: info@balazsorban.com ");
+console.log("http://balazsorban.com");
+
+/* jshint ignore:start */
+]]></>).toString();
+var c = Babel.transform(inline_src, { presets: [ "es2015", "es2016" ] });
+eval(c.code);
+/* jshint ignore:end */
